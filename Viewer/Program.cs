@@ -12,6 +12,7 @@ using System.Numerics;
 using System.Runtime.InteropServices;
 using Viewer.Cameras;
 using Viewer.Scenes;
+using Viewer.Scenes.Electromagnetismo;
 using Viewer.Scenes.Gravity;
 
 new App().Run();
@@ -58,9 +59,9 @@ internal unsafe class App
     const int FloatsPerInstance = 7; // pos(3) + color(3) + radio(1)
 
     readonly IWindow window;
-    //readonly ParticulaScene scene = new(new LfvbPhysics.World(true,true,false));
+    readonly GeneralScena scena = new ParticulaScene(new LfvbPhysics.World(true,true,false));
 
-    readonly GeneralScena scena = new OrbitalEscena(new LfvbPhysics.World(true, true, false));
+    //readonly GeneralScena scena = new OrbitalEscena(new LfvbPhysics.World(true, true, false));
     readonly OrbitalCamera camera = new OrbitalCamera();
 
     GL gl = null!;

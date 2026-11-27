@@ -14,7 +14,7 @@ namespace Viewer.Scenes.Electromagnetismo
         public readonly List<Particula> Particulas = new();
         public Core.Maths.Vector3D Gravity = Vector3D.Zero;
         public Core.Maths.Vector3D E = new(0, 0, 0);   // campo eléctrico
-        public Core.Maths.Vector3D B = new(0, 0, 0);     // campo magnético
+        public Core.Maths.Vector3D B = new(3, 0, 3);     // campo magnético
         
         public ParticulaScene(World world)
         {
@@ -30,12 +30,12 @@ namespace Viewer.Scenes.Electromagnetismo
             Particulas.Clear();
 
             // Cargas positivas: giran en un sentido
-            Particulas.Add(new Particula {Nombre="P1POS", Masa = 100, Carga = 1e-5, Posicion = new Core.Maths.Vector3D(0, 1, 0), Velocidad = new Core.Maths.Vector3D(0, 0, 0) });
+            Particulas.Add(new Particula {Nombre="P1POS", Masa = 100, Carga = 1e-5, Posicion = new Core.Maths.Vector3D(1,1 , 0), Velocidad = new Core.Maths.Vector3D(0, 0, 0) });
             //Particulas.Add(new Particula { Masa = 1, Carga = +1, Posicion = new Core.Maths.Vector3D(0, 0, 0), Velocidad = new Core.Maths.Vector3D(1, 0, 0) });
             //Particulas.Add(new Particula { Masa = 2, Carga = +1, Posicion = new Core.Maths.Vector3D(0, 0, 0), Velocidad = new Core.Maths.Vector3D(2, -0.3, 0) });
 
             // Cargas negativas: giran en sentido contrario
-            Particulas.Add(new Particula { Nombre = "P2NEG", Masa = 100, Carga = -1e-5, Posicion = new Core.Maths.Vector3D(0, -1, 0), Velocidad = new Core.Maths.Vector3D(0, 0, 0) });
+            Particulas.Add(new Particula { Nombre = "P2NEG", Masa = 100, Carga = -1e-5, Posicion = new Core.Maths.Vector3D(0, 0, 0), Velocidad = new Core.Maths.Vector3D(0, 0, 0) });
             //Particulas.Add(new Particula { Masa = 0.5, Carga = -1, Posicion = new Core.Maths.Vector3D(0, 0, 0), Velocidad = new Core.Maths.Vector3D(1.5, 0, 0) });
 
             // Neutra: no siente B ni E, va en línea recta
