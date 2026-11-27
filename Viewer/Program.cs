@@ -3,6 +3,7 @@
 // En el .csproj: <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
 // Si pusiste Physics.Core dentro de un namespace, añade: using Physics.Core;
 
+using Core.Fields;
 using Core.Particulas;
 using Silk.NET.Input;
 using Silk.NET.Maths;
@@ -11,6 +12,7 @@ using Silk.NET.Windowing;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using Viewer.Cameras;
+using Viewer.Opengl.Draws;
 using Viewer.Opengl.Fragment;
 using Viewer.Opengl.Vertex;
 using Viewer.Scenes;
@@ -58,11 +60,20 @@ internal unsafe class App
     uint lineProgram, lineVao, lineVbo;
     int lineVpLocation;
     readonly List<float> lineData = new();
-    
+
+    int stepCounter;
+
     const float VelocityScale = GeneralScena.VectorVelocityScale;       // longitud de flecha por unidad de velocidad
     const float AccelerationScale = GeneralScena.VectorAccelerationScale;   // longitud de flecha por unidad de aceleración
-    
 
+    readonly List<Trail> trails = new();
+
+    //Para la rejillas de los planos    
+    uint gridVao, gridVbo;
+    int gridCount, pointSizeLocation;
+    
+   
+    
 
 
     float[] instanceData = Array.Empty<float>();
@@ -118,11 +129,15 @@ internal unsafe class App
                 switch (key)
                 {
                     case Key.Space: paused = !paused; break;
-                    case Key.R: scena.Reset(); accumulator = 0; break;
+                    case Key.R: scena.Reset(); accumulator = 0; trails.Clear(); stepCounter = 0; break;
+                    case Key.T: scena.ShowEstelas = !scena.ShowEstelas; break;
+                    case Key.C: trails.Clear(); break;
                     case Key.Up: timeScale = Math.Min(timeScale * 2, 16); break;
                     case Key.Down: timeScale = Math.Max(timeScale / 2, 1.0 / 16); break;
                     case Key.V: scena.ShowVectors = !scena.ShowVectors; break;
                     case Key.E: scena.ShowEjes = !scena.ShowEjes; break;
+                    case Key.B: scena.ShowGrids = !scena.ShowGrids; break;
+                    case Key.F: scena.ShowCampos = !scena.ShowCampos; break;
                     case Key.Escape: window.Close(); break;
                 }
             };
@@ -194,6 +209,19 @@ internal unsafe class App
         gl.EnableVertexAttribArray(1);
         gl.VertexAttribPointer(1, 3, VertexAttribPointerType.Float, false, lineStride, (void*)(3 * sizeof(float)));
 
+        // Rejilla de puntos (se construye una sola vez)
+        var grid = BuildGrid(scena);
+        gridCount = grid.Length / 6;
+        gridVao = gl.GenVertexArray();
+        gl.BindVertexArray(gridVao);
+        gridVbo = gl.GenBuffer();
+        gl.BindBuffer(BufferTargetARB.ArrayBuffer, gridVbo);
+        gl.BufferData<float>(BufferTargetARB.ArrayBuffer, grid, BufferUsageARB.StaticDraw);
+        gl.EnableVertexAttribArray(0);
+        gl.VertexAttribPointer(0, 3, VertexAttribPointerType.Float, false, lineStride, (void*)0);
+        gl.EnableVertexAttribArray(1);
+        gl.VertexAttribPointer(1, 3, VertexAttribPointerType.Float, false, lineStride, (void*)(3 * sizeof(float)));
+
         gl.BindVertexArray(0);
     }
 
@@ -204,7 +232,13 @@ internal unsafe class App
         while (accumulator >= Dt)
         {
             scena.Step(Dt);
+            if (++stepCounter % scena.DibujarEstelaCada == 0) RecordTrails();
             accumulator -= Dt;
+        }
+        //Evito overflow de stepCounter
+        if (stepCounter.Equals(int.MaxValue))
+        {
+            stepCounter = 0;
         }
     }
 
@@ -246,6 +280,21 @@ internal unsafe class App
         gl.DrawElementsInstanced(PrimitiveType.Triangles, (uint)indexCount,
                                  DrawElementsType.UnsignedInt, (void*)0, (uint)n);
 
+        if(scena.ShowGrids)
+        {
+            DrawGrid(vp);
+        }
+
+        if(scena.ShowCampos)
+        {
+            DrawFieldsGizmo();
+        }
+
+        if (scena.ShowEstelas)
+        {
+            DrawTrails(vp, n);
+        }
+
         if(scena.ShowVectors)
         {
             DrawVectors(vp, n);
@@ -263,6 +312,49 @@ internal unsafe class App
         gl.DeleteBuffer(instanceVbo);
         gl.DeleteVertexArray(vao);
         gl.DeleteProgram(program);
+    }
+
+
+    //dibuja la rejilla de puntos en los planos XY, XZ, YZ
+    void DrawGrid(Matrix4x4 vp)
+    {
+        float scale = (float)window.FramebufferSize.X / Math.Max(1, window.Size.X);   // HiDPI
+        gl.UseProgram(lineProgram);
+        gl.UniformMatrix4(lineVpLocation, false, MemoryMarshal.CreateReadOnlySpan(ref vp.M11, 16));
+        gl.Uniform1(pointSizeLocation, 2f * scale);
+        gl.BindVertexArray(gridVao);
+        gl.DrawArrays(PrimitiveType.Points, 0, (uint)gridCount);
+    }
+
+    // Puntos tenues en los tres planos coordenados; cada plano con un matiz del color de su eje normal.
+    // Los puntos de las líneas múltiplo de 5 son algo más brillantes para dar escala.
+    static float[] BuildGrid(GeneralScena scena)
+    {
+        var d = new List<float>();
+        int h = scena.PuntosDesdeElOrigenGrids;
+
+        var tintX = new Vector3(1.0f, 0.6f, 0.6f);   // plano ZY (normal X)
+        var tintY = new Vector3(0.6f, 1.0f, 0.6f);   // plano XZ (normal Y), el "suelo"
+        var tintZ = new Vector3(0.6f, 0.7f, 1.0f);   // plano XY (normal Z)
+
+        void P(float x, float y, float z, Vector3 tint, bool major)
+        {
+            float b = major ? 0.50f : 0.26f;
+            d.Add(x * scena.SeparacionPuntosGrids); d.Add(y * scena.SeparacionPuntosGrids); d.Add(z * scena.SeparacionPuntosGrids);
+            d.Add(tint.X * b); d.Add(tint.Y * b); d.Add(tint.Z * b);
+        }
+
+        for (int i = -h; i <= h; i++)
+        {
+            for (int j = -h; j <= h; j++)
+            {
+                bool major = i % 5 == 0 || j % 5 == 0;
+                P(i, j, 0, tintZ, major);   // plano XY
+                P(0, i, j, tintX, major);   // plano ZY
+                P(i, 0, j, tintY, major);   // plano XZ
+            }
+        }
+        return d.ToArray();
     }
 
 
@@ -302,6 +394,7 @@ internal unsafe class App
         gl.Enable(EnableCap.DepthTest);
     }
 
+    // Dibuja los ejes X, Y, Z con letras en la esquina inferior izquierda
     void DrawEjes()
     {
         (Vector3 dir, Vector3 color, int letter)[] axes =
@@ -354,10 +447,123 @@ internal unsafe class App
         }
     }
 
+    // Indicador de campos fijos en la esquina superior derecha:
+    // E (amarillo) y B (cian), con la orientación real respecto a la cámara actual.
+    // La longitud de cada flecha crece con la intensidad del campo (saturando), no es proporcional.
+    void DrawFieldsGizmo()
+    {
+        var view = camera.View();
+        lineData.Clear();
+
+        // Ejes de referencia muy tenues para leer la dirección
+        (Vector3 dir, Vector3 color)[] axes =
+        {
+            (Vector3.UnitX, new Vector3(1.00f, 0.30f, 0.30f)),
+            (Vector3.UnitY, new Vector3(0.40f, 1.00f, 0.40f)),
+            (Vector3.UnitZ, new Vector3(0.35f, 0.55f, 1.00f)),
+        };
+        foreach (var (dir, color) in axes)
+        {
+            var d = Vector3.TransformNormal(dir, view);
+            AddSegment(-0.4f * d, d, color * 0.22f);
+        }
+        foreach(IField v in scena.world.Campos)
+        {
+            if (v is Core.Fields.Electromagnetic.UniformElectric ue)
+            {
+                AddFieldArrow(ue.campoElectrico, new Vector3(1.00f, 0.85f, 0.25f), 3, view);   // E
+            }
+            else if (v is Core.Fields.Electromagnetic.UniformMagnetic um)
+            {
+                AddFieldArrow(um.CampoMagnetico, new Vector3(0.30f, 0.90f, 1.00f), 4, view);   // B
+            }
+        }
+
+        var fb = window.FramebufferSize;
+        float scale = (float)fb.X / Math.Max(1, window.Size.X);
+        int px = (int)(130 * scale), margin = (int)(12 * scale);
+        var proj = Matrix4x4.CreateOrthographicOffCenter(-1.6f, 1.6f, -1.6f, 1.6f, -5f, 5f);
+
+        // Esquina superior derecha (el origen del viewport de OpenGL es abajo a la izquierda)
+        gl.Viewport(fb.X - margin - px, fb.Y - margin - px, (uint)px, (uint)px);
+        gl.Disable(EnableCap.DepthTest);
+        gl.UseProgram(lineProgram);
+        gl.UniformMatrix4(lineVpLocation, false, MemoryMarshal.CreateReadOnlySpan(ref proj.M11, 16));
+        gl.BindVertexArray(lineVao);
+        gl.BindBuffer(BufferTargetARB.ArrayBuffer, lineVbo);
+        gl.BufferData<float>(BufferTargetARB.ArrayBuffer, CollectionsMarshal.AsSpan(lineData), BufferUsageARB.DynamicDraw);
+        gl.DrawArrays(PrimitiveType.Lines, 0, (uint)(lineData.Count / 6));
+        gl.Enable(EnableCap.DepthTest);
+        gl.Viewport(0, 0, (uint)fb.X, (uint)fb.Y);
+    }
+
+    //Dibuja las estelas de las partículas, guardando los últimos N puntos de cada partícula
+    void RecordTrails()
+    {
+        while (trails.Count < scena.world.Particulas.Count) trails.Add(new Trail(scena.CapacidadEstela));
+        for (int i = 0; i < scena.world.Particulas.Count; i++)
+        {
+            var p = scena.world.Particulas[i].Posicion;
+            trails[i].Add(new Vector3((float)p.X, (float)p.Y, (float)p.Z));
+        }
+    }
+
+    // Estela: tramo reciente brillante, tramo antiguo cada vez más tenue (se funde con el fondo)
+    void DrawTrails(Matrix4x4 vp, int n)
+    {
+        lineData.Clear();
+        for (int i = 0; i < n && i < trails.Count; i++)
+        {
+            var t = trails[i];
+            if (t.Count < 2) continue;
+
+            var charge = scena.world.Particulas[i].Carga;
+            var baseColor = charge > 0 ? new Vector3(1.00f, 0.35f, 0.30f)
+                          : charge < 0 ? new Vector3(0.30f, 0.50f, 1.00f)
+                          : new Vector3(0.70f, 0.70f, 0.70f);
+
+            for (int k = 0; k < t.Count - 1; k++)
+            {
+                float f0 = 0.10f + 0.90f * k / (t.Count - 1);
+                float f1 = 0.10f + 0.90f * (k + 1) / (t.Count - 1);
+                AddVertex(t[k], baseColor * f0);
+                AddVertex(t[k + 1], baseColor * f1);
+            }
+        }
+        if (lineData.Count == 0) return;
+
+        gl.UseProgram(lineProgram);
+        gl.UniformMatrix4(lineVpLocation, false, MemoryMarshal.CreateReadOnlySpan(ref vp.M11, 16));
+        gl.BindVertexArray(lineVao);
+        gl.BindBuffer(BufferTargetARB.ArrayBuffer, lineVbo);
+        gl.BufferData<float>(BufferTargetARB.ArrayBuffer, CollectionsMarshal.AsSpan(lineData), BufferUsageARB.DynamicDraw);
+        gl.DrawArrays(PrimitiveType.Lines, 0, (uint)(lineData.Count / 6));
+    }
+
+
+    void AddVertex(Vector3 pos, Vector3 color)
+    {
+        lineData.Add(pos.X); lineData.Add(pos.Y); lineData.Add(pos.Z);
+        lineData.Add(color.X); lineData.Add(color.Y); lineData.Add(color.Z);
+    }
+
     void AddSegment(Vector3 a, Vector3 b, Vector3 color)
     {
         lineData.AddRange(new[] { a.X, a.Y, a.Z, color.X, color.Y, color.Z });
         lineData.AddRange(new[] { b.X, b.Y, b.Z, color.X, color.Y, color.Z });
+    }
+
+    void AddFieldArrow(Core.Maths.Vector3D field, Vector3 color, int letter, Matrix4x4 view)
+    {
+        double m = field.Norma();
+        if (m < 1e-9) return;   // campo nulo: sin flecha
+
+        var dirWorld = new Vector3((float)(field.X / m), (float)(field.Y / m), (float)(field.Z / m));
+        var d = Vector3.TransformNormal(dirWorld, view);   // dirección en el espacio de la cámara
+        float len = 1.25f * (float)(m / (m + 0.5));        // 0 -> 0, campo grande -> ~1.25
+
+        AddArrow(Vector3.Zero, d * len, color);
+        AddGlyph(letter, d * (len + 0.25f), color);
     }
 
     // Flecha = cuerpo + cabeza de cuatro aletas
