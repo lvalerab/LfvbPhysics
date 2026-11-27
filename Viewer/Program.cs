@@ -16,6 +16,7 @@ using Viewer.Opengl.Draws;
 using Viewer.Opengl.Fragment;
 using Viewer.Opengl.Vertex;
 using Viewer.Scenes;
+using Viewer.Scenes.Basicas;
 using Viewer.Scenes.Electromagnetismo;
 using Viewer.Scenes.Gravity;
 
@@ -45,8 +46,9 @@ internal unsafe class App
     const int FloatsPerInstance = 7; // pos(3) + color(3) + radio(1)
 
     readonly IWindow window;
-    //readonly GeneralScena scena = new ParticulaScene(new LfvbPhysics.World(true,true,false));
-    readonly GeneralScena scena = new OrbitalEscena(new LfvbPhysics.World(true, true, false));
+    //readonly GeneralScena scena = new ParticulaScene(new LfvbPhysics.World(true,true,true));
+    //readonly GeneralScena scena = new OrbitalEscena(new LfvbPhysics.World(true, true, false));
+    readonly GeneralScena scena = new TiroParabolicoParticulaScene(new LfvbPhysics.World(true, true, false));
 
 
     readonly OrbitalCamera camera = new OrbitalCamera();
@@ -376,10 +378,14 @@ internal unsafe class App
                 //La velocidad
                 var v = new Vector3((float)p.Velocidad.X, (float)p.Velocidad.Y, (float)p.Velocidad.Z);
                 AddArrow(origin, v * VelocityScale, velColor);
-
-                //La aceleración
-                var a = new Vector3((float)p.Aceleracion.X, (float)p.Aceleracion.Y, (float)p.Aceleracion.Z);
-                AddArrow(origin, a * AccelerationScale, accColor);
+                if(p.Aceleracion!=null) { 
+                    //La aceleración
+                    var a = new Vector3((float)p.Aceleracion.X, (float)p.Aceleracion.Y, (float)p.Aceleracion.Z);
+                    AddArrow(origin, a * AccelerationScale, accColor);
+                } else
+                {
+                    AddArrow(origin,Vector3.Zero* AccelerationScale, accColor);
+                }
             }
         }
         if (lineData.Count == 0) return;
@@ -467,7 +473,7 @@ internal unsafe class App
             var d = Vector3.TransformNormal(dir, view);
             AddSegment(-0.4f * d, d, color * 0.22f);
         }
-        foreach(IField v in scena.world.Campos)
+        foreach (IField v in scena.world.Campos)
         {
             if (v is Core.Fields.Electromagnetic.UniformElectric ue)
             {
@@ -476,6 +482,10 @@ internal unsafe class App
             else if (v is Core.Fields.Electromagnetic.UniformMagnetic um)
             {
                 AddFieldArrow(um.CampoMagnetico, new Vector3(0.30f, 0.90f, 1.00f), 4, view);   // B
+            }
+            else if (v is Core.Fields.Gravity.UniformGravity ug)
+            {
+                AddFieldArrow(ug.gravedad, new Vector3(0.80f, 0.80f, 0.80f), 5, view);   // G)
             }
         }
 
