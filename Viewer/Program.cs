@@ -6,9 +6,11 @@
 using Core.Fields;
 using Core.Maths;
 using Core.Particulas;
+using ImGuiNET;
 using Silk.NET.Input;
 using Silk.NET.Maths;
 using Silk.NET.OpenGL;
+using Silk.NET.OpenGL.Extensions.ImGui;
 using Silk.NET.Windowing;
 using System.Numerics;
 using System.Runtime.InteropServices;
@@ -47,8 +49,8 @@ internal unsafe class App
     const int FloatsPerInstance = 7; // pos(3) + color(3) + radio(1)
 
     readonly IWindow window;
-    readonly GeneralScena scena = new ParticulaScene(new LfvbPhysics.World(true,true,true));
-    //readonly GeneralScena scena = new OrbitalEscena(new LfvbPhysics.World(true, true, false));
+    //readonly GeneralScena scena = new ParticulaScene(new LfvbPhysics.World(true,true,true));
+    readonly GeneralScena scena = new OrbitalEscena(new LfvbPhysics.World(true, true, false));
     //readonly GeneralScena scena = new TiroParabolicoParticulaScene(new LfvbPhysics.World(true, true, false));
 
 
@@ -74,9 +76,10 @@ internal unsafe class App
     //Para la rejillas de los planos    
     uint gridVao, gridVbo;
     int gridCount, pointSizeLocation;
-    
-   
-    
+
+    //Para el gdi
+    ImGuiController imgui = null!;
+
 
 
     float[] instanceData = Array.Empty<float>();
@@ -128,11 +131,16 @@ internal unsafe class App
     void SetupInput()
     {
         var input = window.CreateInput();
+        
+        //Para el GDI
+        imgui = new ImGuiController(gl, window, input);
 
         foreach (var kb in input.Keyboards)
         {
             kb.KeyDown += (_, key, _) =>
             {
+                if (ImGui.GetIO().WantCaptureKeyboard) return;   // escribiendo en el panel
+
                 switch (key)
                 {
                     case Key.Space: paused = !paused; break;
@@ -148,6 +156,7 @@ internal unsafe class App
                     case Key.E: scena.ShowEjes = !scena.ShowEjes; break;
                     case Key.B: scena.ShowGrids = !scena.ShowGrids; break;
                     case Key.F: scena.ShowCampos = !scena.ShowCampos; break;
+                    case Key.L: scena.ShowNames = !scena.ShowNames; break;
                     case Key.Escape: window.Close(); break;
                 }
             };
@@ -158,7 +167,7 @@ internal unsafe class App
         {
             mouse.MouseMove += (m, pos) =>
             {
-                if (hasLastMouse && m.IsButtonPressed(MouseButton.Left))
+                if (hasLastMouse && m.IsButtonPressed(MouseButton.Left) && !ImGui.GetIO().WantCaptureMouse)
                 {
                     var d = pos - lastMouse;
                     camera.Yaw += d.X * 0.005f;
@@ -168,7 +177,10 @@ internal unsafe class App
                 hasLastMouse = true;
             };
             mouse.Scroll += (_, wheel) =>
+            {
+                if (ImGui.GetIO().WantCaptureMouse) return;
                 camera.Distance = Math.Clamp(camera.Distance * MathF.Pow(0.9f, wheel.Y), 2f, 150f);
+            };
         }
     }
 
@@ -257,6 +269,7 @@ internal unsafe class App
     {
         gl.ClearColor(0.08f, 0.08f, 0.10f, 1f);
         gl.Clear(ClearBufferMask.ColorBufferBit | ClearBufferMask.DepthBufferBit);
+        imgui.Update((float)delta);
 
         // 1) Física (double) -> buffer de instancias (float)
         int n = Math.Min(scena.world.Particulas.Count, instanceData.Length / FloatsPerInstance);
@@ -306,7 +319,12 @@ internal unsafe class App
             DrawTrails(vp, n);
         }
 
-        if(scena.ShowVectors)
+        if(scena.ShowNames)
+        {
+            DrawLabels(vp, n);
+        }
+
+        if (scena.ShowVectors)
         {
             DrawVectors(vp, n);
         }
@@ -314,15 +332,32 @@ internal unsafe class App
         {
             DrawEjes();
         }
+
+        DrawControlPanel();
+
+        //Esto siempre el ultimo
+        imgui.Render();
     }
 
     void OnClosing()
     {
+       /* gl.DeleteBuffer(sphereVbo);
+        gl.DeleteBuffer(ebo);
+        gl.DeleteBuffer(instanceVbo);
+        gl.DeleteVertexArray(vao);
+        gl.DeleteProgram(program);*/
+
+        imgui.Dispose();
         gl.DeleteBuffer(sphereVbo);
         gl.DeleteBuffer(ebo);
         gl.DeleteBuffer(instanceVbo);
         gl.DeleteVertexArray(vao);
         gl.DeleteProgram(program);
+        gl.DeleteProgram(lineProgram);
+        gl.DeleteBuffer(lineVbo);
+        gl.DeleteBuffer(gridVbo);
+        gl.DeleteVertexArray(gridVao);
+        gl.DeleteVertexArray(lineVao);
     }
 
 
@@ -368,6 +403,38 @@ internal unsafe class App
         return d.ToArray();
     }
 
+    // Etiquetas: se proyecta la posición 3D a píxeles y se dibuja texto con ImGui junto a cada partícula
+    void DrawLabels(Matrix4x4 vp, int n)
+    {
+        var draw = ImGui.GetForegroundDrawList();
+        float w = window.Size.X, h = window.Size.Y;
+
+        for (int i = 0; i < n; i++)
+        {
+            var p = scena.world.Particulas[i];
+            var clip = Vector4.Transform(
+                new Vector4((float)p.Posicion.X, (float)p.Posicion.Y, (float)p.Posicion.Z, 1f), vp);
+
+            // Detrás de la cámara o fuera de los planos de recorte: sin etiqueta
+            if (clip.W <= 0f || clip.Z < 0f || clip.Z > clip.W) continue;
+
+            float sx = (clip.X / clip.W * 0.5f + 0.5f) * w;
+            float sy = (1f - (clip.Y / clip.W * 0.5f + 0.5f)) * h;
+            if (sx < -50 || sx > w + 50 || sy < -50 || sy > h + 50) continue;
+
+            string name = $"{p.Nombre}";
+            //string text = 1 == 1
+            //    ? name
+            //    : $"{name}  q={p.Charge:+0.##;-0.##;0}  m={p.Mass:0.##}  |v|={p.Velocity.Length:0.00}";
+            string text = $"{name}  q={p.Carga:+0.##;-0.##;0} Q  m={p.Masa:0.##} Kg  |v|={p.Velocidad.Norma():0.00} m/s |a|={(p.Aceleracion!=null?p.Aceleracion.Norma():0):0.00}";
+
+            var color = p.Carga > 0 ? new Vector4(1.00f, 0.55f, 0.50f, 1f)
+                      : p.Carga < 0 ? new Vector4(0.55f, 0.70f, 1.00f, 1f)
+                      : new Vector4(0.85f, 0.85f, 0.85f, 1f);
+
+            draw.AddText(new Vector2(sx + 10f, sy - 18f), ImGui.GetColorU32(color), text);
+        }
+    }
 
     // Dibuja flechas de velocidad y aceleración
 
@@ -607,6 +674,84 @@ internal unsafe class App
         AddSegment(tip, basePoint - w * side, color);
         AddSegment(tip, basePoint + w * up, color);
         AddSegment(tip, basePoint - w * up, color);
+    }
+
+
+
+    /**************************************************************************************
+     * Para el GDI de configuacion
+     *************************************************************************************/
+      static readonly string[] LabelItems = { "Ninguna", "Nombre", "Nombre + datos" };
+
+    //static Vector3D ToV(Vec3 v) => new((float)v.X, (float)v.Y, (float)v.Z);
+    //static Vec3 FromV(Vector3 v) => new(v.X, v.Y, v.Z);
+
+    // Panel de control: campos uniformes, simulación y visualización
+    void DrawControlPanel()
+    {
+        ImGui.SetNextWindowPos(new Vector2(10, 10), ImGuiCond.FirstUseEver);
+        ImGui.SetNextWindowSize(new Vector2(330, 0), ImGuiCond.FirstUseEver);
+        if (!ImGui.Begin("Simulación")) { ImGui.End(); return; }
+
+        ImGui.Text($"t = {scena.Time:0.00} s    partículas: {scena.world.Particulas.Count}");
+
+        // --- Campos uniformes ---
+        ImGui.Separator();
+        ImGui.Text("Campos uniformes (arrastra o Ctrl+clic para escribir)");
+        //var g = ToV(scene.world.Gra);
+        //var e = ToV(scene.E);
+        //var b = ToV(scene.B);
+        /*bool changed = false;
+        changed |= ImGui.DragFloat3("g (m/s²)", ref g, 0.05f);
+        changed |= ImGui.DragFloat3("E (V/m)", ref e, 0.02f);
+        changed |= ImGui.DragFloat3("B (T)", ref b, 0.02f);
+        if (changed)
+        {
+            scene.Gravity = FromV(g);
+            scene.E = FromV(e);
+            scene.B = FromV(b);
+            scene.RefreshAccelerations();
+        }*/
+
+        /*void Preset(Vec3 gg, Vec3 ee, Vec3 bb)
+        {
+            scene.Gravity = gg; scene.E = ee; scene.B = bb;
+            scene.RefreshAccelerations();
+        }*/
+        //if (ImGui.Button("Sin campos")) Preset(Vec3.Zero, Vec3.Zero, Vec3.Zero);
+        //ImGui.SameLine();
+        //if (ImGui.Button("Gravedad")) Preset(new Vec3(0, -9.81, 0), Vec3.Zero, Vec3.Zero);
+        //ImGui.SameLine();
+        //if (ImGui.Button("Ciclotrón")) Preset(Vec3.Zero, new Vec3(0, 0, 0.4), new Vec3(0, 1, 0));
+
+        // --- Simulación ---
+        ImGui.Separator();
+        ImGui.Checkbox("Pausa", ref paused);
+        ImGui.SameLine();
+        if (ImGui.Button("Reiniciar"))
+        {
+            scena.Reset(); accumulator = 0; trails.Clear(); stepCounter = 0;
+        }
+        ImGui.SameLine();
+        if (ImGui.Button("Borrar estelas")) trails.Clear();
+
+        float ts = (float)timeScale;
+        if (ImGui.SliderFloat("Ritmo", ref ts, 0.0625f, 16f, "%.2fx", ImGuiSliderFlags.Logarithmic))
+            timeScale = ts;
+
+        // --- Visualización ---
+        ImGui.Separator();
+        ImGui.Text("Visualización");
+        ImGui.Checkbox("Velocidad y aceleracion", ref scena.ShowVectors);        
+        ImGui.Checkbox("Estelas", ref scena.ShowEstelas);
+        ImGui.SameLine();
+        ImGui.Checkbox("Rejilla", ref scena.ShowGrids);
+        ImGui.Checkbox("Ejes", ref scena.ShowEjes);
+        ImGui.SameLine();
+        ImGui.Checkbox("Campos", ref scena.ShowCampos);
+        ImGui.Checkbox("Etiquetas", ref scena.ShowNames);
+
+        ImGui.End();
     }
 
     // --- Utilidades para compilar los shaders y slices ---------------------------------------------------

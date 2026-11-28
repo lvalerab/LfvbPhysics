@@ -15,6 +15,8 @@ namespace Viewer.Scenes
 
         public int DibujarEstelaCada = 4; // dibujar la estela cada N pasos de simulación
 
+        public bool ShowNames = false;
+
         public bool ShowVectors = false;
 
         public bool ShowEjes = true;

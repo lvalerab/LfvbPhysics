@@ -30,7 +30,7 @@ namespace Viewer.Scenes.Gravity
             this.world.Particulas.Clear();
 
             
-            this.world.Particulas.Add(new Particula { Nombre = "SOL", Masa = 1e11, Carga = 1, Posicion = new Core.Maths.Vector3D(0, 0, 0), Velocidad = new Core.Maths.Vector3D(0, 0, 0) });
+            this.world.Particulas.Add(new Particula { Nombre = "SOL", Masa = 1e11, Carga = 1, Posicion = new Core.Maths.Vector3D(0, 0, 0), Velocidad = new Core.Maths.Vector3D(0, 0, 0.02) });
 
             this.world.Particulas.Add(new Particula { Nombre = "TIERRA", Masa = 100, Carga = -1e-24, Posicion = new Core.Maths.Vector3D(0, 5, 0), Velocidad = new Core.Maths.Vector3D(1, 0, 0) });
 
