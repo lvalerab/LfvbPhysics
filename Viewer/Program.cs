@@ -4,6 +4,7 @@
 // Si pusiste Physics.Core dentro de un namespace, añade: using Physics.Core;
 
 using Core.Fields;
+using Core.Maths;
 using Core.Particulas;
 using Silk.NET.Input;
 using Silk.NET.Maths;
@@ -46,9 +47,9 @@ internal unsafe class App
     const int FloatsPerInstance = 7; // pos(3) + color(3) + radio(1)
 
     readonly IWindow window;
-    //readonly GeneralScena scena = new ParticulaScene(new LfvbPhysics.World(true,true,true));
+    readonly GeneralScena scena = new ParticulaScene(new LfvbPhysics.World(true,true,true));
     //readonly GeneralScena scena = new OrbitalEscena(new LfvbPhysics.World(true, true, false));
-    readonly GeneralScena scena = new TiroParabolicoParticulaScene(new LfvbPhysics.World(true, true, false));
+    //readonly GeneralScena scena = new TiroParabolicoParticulaScene(new LfvbPhysics.World(true, true, false));
 
 
     readonly OrbitalCamera camera = new OrbitalCamera();
@@ -84,6 +85,10 @@ internal unsafe class App
     bool paused;
     Vector2 lastMouse;
     bool hasLastMouse;
+
+    //Para poner la camara sobre una particula
+    int indexCamara = -1;
+
 
     public App()
     {
@@ -135,7 +140,10 @@ internal unsafe class App
                     case Key.T: scena.ShowEstelas = !scena.ShowEstelas; break;
                     case Key.C: trails.Clear(); break;
                     case Key.Up: timeScale = Math.Min(timeScale * 2, 16); break;
-                    case Key.Down: timeScale = Math.Max(timeScale / 2, 1.0 / 16); break;
+                    case Key.Down: timeScale = Math.Max(timeScale / 2, 1.0 / 16); break;   
+                    case Key.Left: indexCamara = (indexCamara - 1 + scena.world.Particulas.Count) % scena.world.Particulas.Count; break;
+                    case Key.Right: indexCamara = (indexCamara + 1) % scena.world.Particulas.Count; break;
+                    case Key.O: indexCamara = -1; break;
                     case Key.V: scena.ShowVectors = !scena.ShowVectors; break;
                     case Key.E: scena.ShowEjes = !scena.ShowEjes; break;
                     case Key.B: scena.ShowGrids = !scena.ShowGrids; break;
@@ -145,6 +153,7 @@ internal unsafe class App
             };
         }
 
+       
         foreach (var mouse in input.Mice)
         {
             mouse.MouseMove += (m, pos) =>

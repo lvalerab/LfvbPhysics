@@ -11,7 +11,8 @@ namespace Core.Forces.Electromagnetic
         public void ApplyForce(double time, ref Particula p1, ref Particula p2)
         {
             // Calcular la distancia entre las partículas
-            Vector3D r = p2.Posicion - p1.Posicion;
+            //Vector3D r = p2.Posicion - p1.Posicion;
+            Vector3D r = p1.Posicion - p2.Posicion; //Solucion al problema de que la fuerza se aplicaba en la dirección incorrecta
             double distancia = r.Norma();
             // Evitar división por cero
             if (distancia == 0)
